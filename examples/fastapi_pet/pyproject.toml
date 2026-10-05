@@ -1,0 +1,26 @@
+[project]
+name = "fastapi-pet"
+version = "0.0.0"
+description = "Pet FastAPI project demonstrating the otlpout integration."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "httpx>=0.27",
+    "otlpout",
+    "pytest",
+    "uvicorn>=0.30",
+]
+
+[tool.uv.sources]
+otlpout = { workspace = true }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+python_files = ["test_*.py", "*_test.py"]
+# starlette 1.x deprecates httpx in TestClient in favour of httpx2, but FastAPI
+# still ships httpx-based TestClient; the warning is not actionable here.
+# (StarletteDeprecationWarning subclasses UserWarning.)
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
+]
+addopts = ["-q", "-ra", "--tb=short"]

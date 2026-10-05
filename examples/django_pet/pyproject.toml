@@ -1,0 +1,21 @@
+[project]
+name = "django-pet"
+version = "0.0.0"
+description = "Pet Django project demonstrating the otlpout integration."
+requires-python = ">=3.11"
+dependencies = [
+    "django>=5.0",
+    "otlpout",
+    "pytest",
+    "pytest-django",
+]
+
+[tool.uv.sources]
+otlpout = { workspace = true }
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "petdjango.settings"
+pythonpath = ["."]
+python_files = ["test_*.py", "*_test.py"]
+# The app under test is a pet project, not the library: keep failures loud.
+addopts = ["-q", "-ra", "--tb=short"]

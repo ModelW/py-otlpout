@@ -1,0 +1,145 @@
+[project]
+name = "otlpout"
+version = "0.1.0"
+description = "Sentry SDK integration that mirrors spans, errors and logs to stdout as OTLP/JSON."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Rémy Sanchez", email = "remy.sanchez@hyperthese.net" },
+]
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "python-ipware>=4.1",
+    "sentry-sdk>=2.64",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "ruff",
+]
+test = [
+    "opentelemetry-proto",
+    "pytest",
+]
+
+[tool.uv]
+default-groups = ["dev", "test"]
+
+[tool.uv.workspace]
+members = ["examples/django_pet", "examples/fastapi_pet"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/otlpout"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+exclude = ["\\.venv/"]
+
+[[tool.mypy.overrides]]
+# The pet projects use Django only as a test bed; Django ships no py.typed
+# (and django-stubs would drag a plugin into a library that must stay
+# framework-agnostic), so their imports are treated as untyped.
+module = ["django.*", "pytest_django.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Neither protobuf nor opentelemetry-proto ship type information; the tests
+# only use them to validate emitted JSON, not to model it.
+module = ["google.protobuf.*", "opentelemetry.proto.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["*.migrations.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+# Quiet on pass, verbose on fail. The pet projects keep their own config and
+# are run from their member directory.
+addopts = ["-q", "-ra", "--tb=short"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: fixtures shadow args, asserts are the point, long expected-value
+# literals/docstrings are clearer unwrapped, and test names are self-describing.
+"test_*.py" = ["ARG001", "S101", "E501", "S105", "S106", "D1"]
+"conftest.py" = ["ARG001", "S101", "E501", "S105", "S106", "D1"]
+# The Django pet's settings module is pure configuration: a hard-coded dev
+# SECRET_KEY and long tuples are expected and not shipped.
+"examples/django_pet/petdjango/settings.py" = ["E501", "S105", "S106"]
+# Pet project views/modules mirror upstream framework examples.
+"examples/**/pet*/**/*.py" = ["D1"]
+# Pet project tests and their helpers (no __init__.py so mypy does not see two
+# top-level `tests` modules; INP001 is therefore expected).
+"examples/**/tests/*.py" = ["ARG001", "S101", "E501", "S105", "S106", "D1", "INP001"]
+# Pet project management entry points are standalone scripts.
+"examples/**/manage.py" = ["INP001"]
+
+[tool.ruff.lint.isort]
+# Keep otlpout imports in their own group even when the package isn't
+# installed in the linter's environment.
+known-first-party = ["otlpout"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint]
+select = [
+    # -- Core --
+    "E",  # pycodestyle (errors)
+    "W",  # pycodestyle (warnings)
+    "F",  # Pyflakes
+    "I",  # isort
+    "C90",  # McCabe Complexity
+    "D1",  # Mandatory docstrings
+    "S",  # Bandit
+
+    # -- Bonus --
+    "A",  # flake8-bugbear
+    "B",  # flake8-bugbear
+    "DTZ",  # date/time zone
+    "T10",  # debugger
+    "EM",  # error messages
+    "EXE",  # executable
+    "G",  # logging
+    "UP",  # pyupgrade
+    "ASYNC",  # async
+    "INP",  # PEP 420
+    "T20",  # no print
+    "PT",  # pytest
+    "SLOT",  # slots
+    "TCH",  # type checking blocks
+    "PTH",  # Use pathlib
+    "FIX",  # Don't allow not done stuff in code
+    "ERA",  # Don't comment code
+    "RUF",  # Ruff stuff
+    "TID251",  # Banned imports (See below)
+]
+# Package __init__ files don't need docstrings, magic methods are
+# self-describing, and nested configuration classes are pure configuration.
+ignore = ["D104", "D105", "D106"]
+
+exclude = [
+    ".venv",
+    "migrations",
+    "*/migrations/*",
+]
+
+[tool.ruff.format]
+exclude = [
+    ".venv",
+    "migrations",
+    "*/migrations/*",
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"requests".msg = "Use `httpx` instead, which has timeouts by default."
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
