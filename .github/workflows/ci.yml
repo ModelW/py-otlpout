@@ -1,0 +1,115 @@
+name: CI
+
+# Runs on every pull request, on pushes to the default branch, and on demand
+# from the Actions tab (workflow_dispatch).
+on:
+  push:
+    branches: [develop]
+  pull_request:
+  workflow_dispatch:
+
+# A newer commit on the same ref cancels the previous, still-running job.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  lint:
+    name: Lint, format & type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-groups --locked
+
+      - name: Register the mypy problem matcher
+        run: echo "::add-matcher::.github/mypy-matcher.json"
+
+      - name: Ruff (lint)
+        run: uv run --no-sync ruff check --output-format=github .
+
+      - name: Ruff (format)
+        run: uv run --no-sync ruff format --check --diff .
+
+      - name: mypy
+        run: uv run --no-sync mypy --show-column-numbers .
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-groups --locked
+
+      - name: Prepare the JUnit report directory
+        run: mkdir -p junit
+
+      - name: Library tests
+        run: uv run --no-sync pytest --junitxml=junit/library.xml
+
+      - name: Pet Django tests
+        run: cd examples/django_pet && uv run --no-sync pytest --junitxml=../../junit/django.xml
+
+      - name: Pet FastAPI tests
+        run: cd examples/fastapi_pet && uv run --no-sync pytest --junitxml=../../junit/fastapi.xml
+
+      - name: Publish test results
+        if: always()
+        uses: mikepenz/action-junit-report@v6.6.0
+        with:
+          report_paths: junit/*.xml
+          include_passed: true
+          detailed_summary: true
+
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Validate package metadata
+        run: uvx twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
