@@ -6,15 +6,18 @@ import logging
 import random
 from typing import TYPE_CHECKING, Any, TextIO
 
+from sentry_sdk.integrations import Integration
+from sentry_sdk.utils import logger
+
+from otlpout import _handler, _processor
+from otlpout._json import LineWriter, dumps
+from otlpout._logs import event_to_otlp, log_record_to_otlp
+from otlpout._spans import keep_http_spans, reduce_envelope, transaction_to_otlp
+
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
 
-from sentry_sdk.integrations import Integration
-
-from otlpout import _handler, _processor
-from otlpout._json import LineWriter
-from otlpout._logs import event_to_otlp, log_record_to_otlp
-from otlpout._spans import transaction_to_otlp
+    from otlpout._spans import SpanFilter
 
 DEFAULT_LOGGER_DENYLIST: tuple[str, ...] = (
     # Sentry transport I/O and per-query database logs would duplicate the
@@ -24,14 +27,25 @@ DEFAULT_LOGGER_DENYLIST: tuple[str, ...] = (
     "django.db.backends",
 )
 
+#: Default cap on one emitted line. Container runtimes (containerd's
+#: ``max_container_log_line_size``) truncate at 16 KiB, which turns an OTLP
+#: envelope into unparseable JSON; records above this are reduced or dropped.
+DEFAULT_MAX_LINE_BYTES = 16 * 1024
+
 
 class OtlpOut(Integration):
     """Mirror everything Sentry traces to stdout as line-delimited OTLP/JSON.
 
     Pass an instance to ``sentry_sdk.init(integrations=[...])``. Transactions
-    (root span plus children) become ``resourceSpans`` envelopes; captured
-    errors/messages and mirrored ``logging`` records become ``resourceLogs``
-    envelopes. Every line is a complete, schema-valid OTLP/JSON object.
+    become ``resourceSpans`` envelopes; captured errors/messages and mirrored
+    ``logging`` records become ``resourceLogs`` envelopes. Every line is a
+    complete, schema-valid OTLP/JSON object.
+
+    Only the spans selected by ``span_filter`` are emitted — by default HTTP
+    spans, i.e. the ``http.server`` transaction root that access-log consumers
+    need. Sentry keeps the full span tree regardless, so child spans are not
+    duplicated here (which also keeps records under the container log-line
+    limit).
 
     All configuration is constructor arguments; the integration reads no
     environment variables and installs nothing until Sentry calls
@@ -54,6 +68,8 @@ class OtlpOut(Integration):
         extra_resource_attributes: Mapping[str, Any] | None = None,
         logger_denylist: Collection[str] = DEFAULT_LOGGER_DENYLIST,
         logger_allowlist: Collection[str] | None = None,
+        span_filter: SpanFilter = keep_http_spans,
+        max_line_bytes: int = DEFAULT_MAX_LINE_BYTES,
         rng: random.Random | None = None,
     ) -> None:
         """Configure the integration.
@@ -82,6 +98,13 @@ class OtlpOut(Integration):
         :param logger_denylist: Logger name prefixes never mirrored.
         :param logger_allowlist: When set, only these logger name prefixes are
             mirrored (overrides the denylist).
+        :param span_filter: Predicate over a span's Sentry operation deciding
+            whether it is emitted. Defaults to :func:`keep_http_spans`; pass
+            ``lambda _op: True`` to emit every span.
+        :param max_line_bytes: Emitted-line budget. Records above it are reduced
+            to their core attributes (and log bodies truncated); if still too
+            large they are dropped with a warning instead of being handed to a
+            runtime that would truncate them into invalid JSON.
         :param rng: Random source used for sampling (injectable for tests).
         """
         self.service_name = service_name
@@ -94,6 +117,8 @@ class OtlpOut(Integration):
         self.extra_resource_attributes: Mapping[str, Any] = (
             extra_resource_attributes or {}
         )
+        self.span_filter = span_filter
+        self.max_line_bytes = max_line_bytes
         self._writer = LineWriter(stream)
         self._denylist = tuple(logger_denylist)
         self._allowlist = (
@@ -140,7 +165,20 @@ class OtlpOut(Integration):
             return
         if self.sample_rate < 1.0 and self._rng.random() >= self.sample_rate:
             return
-        self._writer.write(obj)
+        line = dumps(obj)
+        if len(line.encode("utf-8")) > self.max_line_bytes:
+            line = dumps(reduce_envelope(obj))
+            if len(line.encode("utf-8")) > self.max_line_bytes:
+                logger.warning(
+                    "otlpout: dropping oversized OTLP record (%d bytes > %d)",
+                    len(line.encode("utf-8")),
+                    self.max_line_bytes,
+                )
+                return
+            logger.debug(
+                "otlpout: reduced an oversized OTLP record to fit the line budget"
+            )
+        self._writer.write_line(line)
 
 
 def _prefix_match(name: str, prefix: str) -> bool:

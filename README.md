@@ -38,15 +38,28 @@ already produces, without adding a second OpenTelemetry SDK to your process.
 
 ## What gets emitted
 
-| Sentry source                                   | OTLP/JSON payload  |
-| ----------------------------------------------- | ------------------ |
-| Transaction (root span + its child spans)       | `resourceSpans`    |
-| Captured error / message                        | `resourceLogs`     |
-| Mirrored `logging` records below `ERROR`        | `resourceLogs`     |
+| Sentry source                                                  | OTLP/JSON payload |
+| -------------------------------------------------------------- | ----------------- |
+| HTTP spans (by default the `http.server` transaction root)     | `resourceSpans`   |
+| Captured error / message                                       | `resourceLogs`    |
+| Mirrored `logging` records below `ERROR`                       | `resourceLogs`    |
 
 Each line is a standalone, schema-valid OTLP/JSON object, so a log drain can
 forward `resourceSpans` to a traces pipeline and `resourceLogs` to a logs
 pipeline without a collector.
+
+Only the spans selected by `span_filter` are emitted — by default HTTP spans,
+which in practice means the `http.server` transaction root that access-log
+consumers need. Sentry keeps the full span tree, so child spans (DB queries,
+templates, signals, Celery tasks) are deliberately **not** duplicated here:
+shipping them wastes an order of magnitude of volume *and* pushes records past
+the 16 KiB container log-line limit, which truncates them into invalid JSON.
+Pass `span_filter=lambda _op: True` to emit every span instead.
+
+Records larger than `max_line_bytes` (default 16 KiB — containerd's
+`max_container_log_line_size`) are reduced to their core attributes (log bodies
+truncated); if still too large they are dropped with a warning rather than handed
+to a runtime that would truncate them mid-object.
 
 ## Configuration
 
@@ -62,6 +75,8 @@ pipeline without a collector.
 | `mirror_logging`           | Mirror stdlib `logging` records below `ERROR` (default `True`).  |
 | `ip_precedence`            | Header precedence used to resolve `client.address` (ipware).     |
 | `extra_resource_attributes`| Non-standard attributes merged into every resource block.        |
+| `span_filter`              | Predicate `op -> bool` selecting emitted spans (default HTTP only). |
+| `max_line_bytes`           | Per-line budget; oversized records are reduced, then dropped.    |
 
 The named arguments mirror the OpenTelemetry resource semantic conventions.
 Anything outside that vocabulary (a `product` or `component` taxonomy, for
