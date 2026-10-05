@@ -25,10 +25,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
 
@@ -57,16 +57,19 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install uv and Python ${{ matrix.python-version }}
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
       - name: Install dependencies
         run: uv sync --all-packages --all-groups --locked
+
+      - name: Prepare the JUnit report directory
+        run: mkdir -p junit
 
       - name: Library tests
         run: uv run --no-sync pytest --junitxml=junit/library.xml
@@ -79,7 +82,7 @@ jobs:
 
       - name: Publish test results
         if: always()
-        uses: mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@v6.6.0
         with:
           report_paths: junit/*.xml
           include_passed: true
@@ -91,10 +94,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
 
@@ -105,7 +108,7 @@ jobs:
         run: uvx twine check dist/*
 
       - name: Upload distributions
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: dist
           path: dist/
