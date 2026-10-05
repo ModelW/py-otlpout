@@ -1,8 +1,8 @@
-"""Tests for transaction -> resourceSpans conversion."""
+"""Tests for transaction -> resourceSpans conversion and span filtering."""
 
 from typing import Any
 
-from otlpout._spans import transaction_to_otlp
+from otlpout._spans import keep_http_spans, transaction_to_otlp
 
 
 def _flat(attributes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -10,15 +10,18 @@ def _flat(attributes: list[dict[str, Any]]) -> dict[str, Any]:
     return {item["key"]: next(iter(item["value"].values())) for item in attributes}
 
 
-def test_root_and_children(
+def _scopes(event: dict[str, Any], adapter: Any) -> list[dict[str, Any]]:
+    envelope = transaction_to_otlp(event, adapter)
+    assert envelope is not None
+    return envelope["resourceSpans"][0]["scopeSpans"]
+
+
+def test_http_root_is_kept_and_non_http_children_dropped(
     make_adapter: Any, transaction_event: dict[str, Any]
 ) -> None:
     adapter, _ = make_adapter()
-    scopes = transaction_to_otlp(transaction_event, adapter)["resourceSpans"][0][
-        "scopeSpans"
-    ]
-    assert scopes[0]["scope"]["name"] == "sentry.transaction"
-    assert scopes[1]["scope"]["name"] == "sentry.span"
+    scopes = _scopes(transaction_event, adapter)
+    assert [scope["scope"]["name"] for scope in scopes] == ["sentry.transaction"]
 
     root = scopes[0]["spans"][0]
     assert root["traceId"] == "a" * 32
@@ -40,6 +43,16 @@ def test_root_and_children(
     assert attrs["http.request.referrer"] == "http://ref.example.com/?x=1"
     assert attrs["client.address"] == "203.0.113.7"
 
+
+def test_filter_can_keep_every_span(
+    make_adapter: Any, transaction_event: dict[str, Any]
+) -> None:
+    adapter, _ = make_adapter(span_filter=lambda _op: True)
+    scopes = _scopes(transaction_event, adapter)
+    assert [scope["scope"]["name"] for scope in scopes] == [
+        "sentry.transaction",
+        "sentry.span",
+    ]
     child = scopes[1]["spans"][0]
     assert child["parentSpanId"] == "b" * 16
     assert child["kind"] == 3  # CLIENT
@@ -47,15 +60,34 @@ def test_root_and_children(
     assert _flat(child["attributes"])["db.system"] == "postgresql"
 
 
+def test_http_client_children_are_kept(
+    make_adapter: Any, transaction_event: dict[str, Any]
+) -> None:
+    transaction_event["spans"][0]["op"] = "http.client"
+    adapter, _ = make_adapter()
+    scopes = _scopes(transaction_event, adapter)
+    assert [scope["scope"]["name"] for scope in scopes] == [
+        "sentry.transaction",
+        "sentry.span",
+    ]
+    assert scopes[1]["spans"][0]["kind"] == 3
+
+
+def test_non_http_transaction_is_dropped(
+    make_adapter: Any, transaction_event: dict[str, Any]
+) -> None:
+    transaction_event["contexts"]["trace"]["op"] = "queue.task.celery"
+    transaction_event["spans"] = []
+    adapter, _ = make_adapter()
+    assert transaction_to_otlp(transaction_event, adapter) is None
+
+
 def test_no_children_omits_child_scope(
     make_adapter: Any, transaction_event: dict[str, Any]
 ) -> None:
     transaction_event["spans"] = []
     adapter, _ = make_adapter()
-    scopes = transaction_to_otlp(transaction_event, adapter)["resourceSpans"][0][
-        "scopeSpans"
-    ]
-    assert len(scopes) == 1
+    assert len(_scopes(transaction_event, adapter)) == 1
 
 
 def test_error_status_is_mapped(
@@ -63,7 +95,13 @@ def test_error_status_is_mapped(
 ) -> None:
     transaction_event["contexts"]["trace"]["status"] = "internal_error"
     adapter, _ = make_adapter()
-    root = transaction_to_otlp(transaction_event, adapter)["resourceSpans"][0][
-        "scopeSpans"
-    ][0]["spans"][0]
+    root = _scopes(transaction_event, adapter)[0]["spans"][0]
     assert root["status"] == {"code": 2, "message": "internal_error"}
+
+
+def test_keep_http_spans_predicate() -> None:
+    assert keep_http_spans("http.server")
+    assert keep_http_spans("http.client")
+    assert not keep_http_spans("db")
+    assert not keep_http_spans("queue.task.celery")
+    assert not keep_http_spans(None)

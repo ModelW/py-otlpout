@@ -8,6 +8,11 @@ import threading
 from typing import Any, TextIO
 
 
+def dumps(obj: dict[str, Any]) -> str:
+    """Serialise an OTLP object as compact single-line JSON."""
+    return json.dumps(obj, separators=(",", ":"), default=str)
+
+
 class LineWriter:
     """Serialise OTLP objects to one JSON line each on a possibly late-bound stream.
 
@@ -22,9 +27,12 @@ class LineWriter:
         self._lock = threading.Lock()
 
     def write(self, obj: dict[str, Any]) -> None:
-        """Write ``obj`` as a single JSON line and flush it for log drains."""
+        """Serialise ``obj`` and write it as one flushed JSON line."""
+        self.write_line(dumps(obj))
+
+    def write_line(self, line: str) -> None:
+        """Write an already-serialised JSON line and flush it for log drains."""
         stream = self._stream if self._stream is not None else sys.stdout
-        line = json.dumps(obj, separators=(",", ":"), default=str)
         with self._lock:
             stream.write(line)
             stream.write("\n")
