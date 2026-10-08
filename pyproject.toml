@@ -71,7 +71,6 @@ target-version = "py311"
 "test_*.py" = ["ARG001", "S101", "E501", "S105", "S106", "D1"]
 "conftest.py" = ["ARG001", "S101", "E501", "S105", "S106", "D1"]
 # A shared test helper: assertions and their style are the point.
-"tests/conformance.py" = ["S101", "PT018"]
 # The Django pet's settings module is pure configuration: a hard-coded dev
 # SECRET_KEY and long tuples are expected and not shipped.
 "examples/django_pet/petdjango/settings.py" = ["E501", "S105", "S106"]
