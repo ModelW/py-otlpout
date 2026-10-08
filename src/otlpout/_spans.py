@@ -23,6 +23,9 @@ CHILD_SCOPE = "sentry.span"
 SpanFilter = Callable[[str | None], bool]
 
 #: Attributes kept when an oversized record is reduced to fit the line budget.
+#: The names mirror what access-log consumers parse (OpenTelemetry HTTP
+#: semantic conventions), so a reduced record still renders a Combined Log
+#: Format line.
 CORE_ATTRIBUTE_KEYS = frozenset(
     {
         "sentry.op",
@@ -31,9 +34,16 @@ CORE_ATTRIBUTE_KEYS = frozenset(
         "http.request.method",
         "url.path",
         "url.full",
-        "http.request.origin",
+        "url.query",
+        "url.scheme",
+        "server.address",
+        "server.port",
+        "network.protocol.version",
         "http.response.status_code",
-        "http.request.referrer",
+        "http.response.body.size",
+        "error.type",
+        "user_agent.original",
+        "http.request.header.referer",
         "client.address",
     }
 )

@@ -6,8 +6,18 @@ from otlpout._spans import keep_http_spans, transaction_to_otlp
 
 
 def _flat(attributes: list[dict[str, Any]]) -> dict[str, Any]:
-    """Flatten an OTLP attribute list to a ``{key: value}`` mapping."""
-    return {item["key"]: next(iter(item["value"].values())) for item in attributes}
+    """Flatten an OTLP attribute list, unwrapping ``AnyValue``.
+
+    ``arrayValue`` attributes (e.g. HTTP headers) become Python lists of their
+    scalar elements; every other value becomes the single unwrapped scalar.
+    """
+
+    def unwrap(value: dict[str, Any]) -> Any:
+        if "arrayValue" in value:
+            return [unwrap(item) for item in value["arrayValue"]["values"]]
+        return next(iter(value.values()))
+
+    return {item["key"]: unwrap(item["value"]) for item in attributes}
 
 
 def _scopes(event: dict[str, Any], adapter: Any) -> list[dict[str, Any]]:
@@ -37,11 +47,23 @@ def test_http_root_is_kept_and_non_http_children_dropped(
     assert attrs["sentry.op"] == "http.server"
     assert attrs["sentry.transaction"] == "GET /pets/1"
     assert attrs["http.request.method"] == "GET"
-    assert attrs["url.full"] == "http://example.com/pets/1"
+    assert attrs["url.full"] == "http://example.com/pets/1?q=1#frag"
     assert attrs["url.path"] == "/pets/1"
-    assert attrs["http.request.origin"] == "http://example.com"
-    assert attrs["http.request.referrer"] == "http://ref.example.com/?x=1"
+    assert attrs["url.query"] == "q=1"
+    assert attrs["url.scheme"] == "http"
+    assert attrs["server.address"] == "example.com"
+    assert attrs["user_agent.original"] == "Mozilla/5.0 (compatible; GPTBot/1.2)"
+    assert attrs["http.request.header.referer"] == ["http://ref.example.com/?x=1"]
+    assert "http.request.header.user-agent" not in attrs
+    assert attrs["network.protocol.version"] == "1.1"
+    assert attrs["http.response.status_code"] == "200"
+    assert attrs["http.response.body.size"] == "42"
     assert attrs["client.address"] == "203.0.113.7"
+    # The invented spellings the access-log pipeline never reads are gone.
+    assert "http.request.origin" not in attrs
+    assert "http.request.referrer" not in attrs
+    # A 200 response is not an error.
+    assert "error.type" not in attrs
 
 
 def test_filter_can_keep_every_span(

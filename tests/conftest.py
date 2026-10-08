@@ -66,14 +66,21 @@ def transaction_event() -> dict[str, Any]:
                 "origin": "auto.http.django",
                 "status": "ok",
                 "data": {"url": "http://example.com/pets/1?q=1#frag"},
-            }
+            },
+            "response": {
+                "status_code": 200,
+                "body_size": 42,
+                "headers": {"Content-Type": "application/json"},
+            },
         },
         "tags": {"http.method": "GET"},
         "request": {
             "url": "http://example.com/pets/1?q=1#frag",
             "method": "GET",
+            "env": {"SERVER_PROTOCOL": "HTTP/1.1"},
             "headers": {
                 "Referer": "http://ref.example.com/?x=1",
+                "User-Agent": "Mozilla/5.0 (compatible; GPTBot/1.2)",
                 "X-Forwarded-For": "203.0.113.7, 10.0.0.1",
             },
         },

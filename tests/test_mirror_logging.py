@@ -17,14 +17,15 @@ def test_log_record_conversion(make_adapter: Any) -> None:
     record = logging.LogRecord(
         "app.views", logging.WARNING, "app.py", 10, "hi %s", ("bob",), None
     )
-    log = log_record_to_otlp(record, adapter)["resourceLogs"][0]["scopeLogs"][0][
-        "logRecords"
-    ][0]
+    scope_logs = log_record_to_otlp(record, adapter)["resourceLogs"][0]["scopeLogs"][0]
+    # The OTel Logs API records the logger name as the instrumentation scope.
+    assert scope_logs["scope"]["name"] == "app.views"
+    log = scope_logs["logRecords"][0]
     assert log["severityNumber"] == 13
     assert log["severityText"] == "WARN"
     assert log["body"] == {"stringValue": "hi bob"}
     attrs = _flat(log["attributes"])
-    assert attrs["logger.name"] == "app.views"
+    assert "logger.name" not in attrs
     assert attrs["code.file.path"] == "app.py"
     assert attrs["code.line.number"] == "10"
 
