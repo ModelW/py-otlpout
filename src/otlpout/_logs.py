@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import sentry_sdk
 from sentry_sdk.utils import logger
 
-from otlpout._attributes import attributes
+from otlpout._attributes import attributes, conform_value
 from otlpout._ids import optional_span_id, span_id, trace_id
 from otlpout._ip import client_address
 from otlpout._resource import build_resource
@@ -128,7 +128,8 @@ def _event_attributes(event: dict[str, Any]) -> dict[str, Any]:
                 _frame_summary(frame) for frame in frames
             )
     for key, value in (event.get("tags") or {}).items():
-        result.setdefault(str(key), value)
+        name = str(key)
+        result.setdefault(name, conform_value(name, value))
     return result
 
 

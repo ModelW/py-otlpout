@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from otlpout._attributes import attributes
+from otlpout._attributes import attributes, conform_value
 from otlpout._http import http_attributes
 from otlpout._ids import ZERO_TRACE_ID, optional_span_id, span_id, trace_id
 from otlpout._ip import client_address
@@ -83,7 +83,8 @@ def _structural_attributes(source: dict[str, Any]) -> dict[str, Any]:
     if source.get("origin"):
         result["sentry.origin"] = source["origin"]
     for key, value in (source.get("data") or {}).items():
-        result[str(key)] = value
+        name = str(key)
+        result[name] = conform_value(name, value)
     return result
 
 
@@ -230,4 +231,4 @@ def _tags(tags: Any) -> dict[str, Any]:
     """Return Sentry tags as a plain attribute mapping."""
     if not isinstance(tags, dict):
         return {}
-    return {str(key): value for key, value in tags.items()}
+    return {str(key): conform_value(str(key), value) for key, value in tags.items()}
