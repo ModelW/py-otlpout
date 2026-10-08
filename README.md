@@ -48,6 +48,21 @@ Each line is a standalone, schema-valid OTLP/JSON object, so a log drain can
 forward `resourceSpans` to a traces pipeline and `resourceLogs` to a logs
 pipeline without a collector.
 
+Span attributes follow the OpenTelemetry HTTP **server** semantic conventions:
+the required `http.request.method`, `url.path` and `url.scheme`; the
+conditionally-required `url.query`, `http.response.status_code` and
+`error.type` (on a 5xx); the recommended `client.address`,
+`server.address`/`server.port` (`Forwarded#host`/`X-Forwarded-Host` preferred),
+`network.protocol.version` and `user_agent.original`; and the opt-in request
+and response headers as `http.request.header.<name>` /
+`http.response.header.<name>`, typed as a single-item string array as the
+registry requires. The referrer is therefore `http.request.header.referer`,
+and `url.full` is the absolute URL with credentials and the OTel sensitive
+query parameters redacted. Bespoke spellings such as `http.request.origin` or
+`http.request.referrer` are deliberately not emitted. Mirrored log records use
+the logger name as the instrumentation scope name, as the OTel Logs API
+prescribes.
+
 Only the spans selected by `span_filter` are emitted — by default HTTP spans,
 which in practice means the `http.server` transaction root that access-log
 consumers need. Sentry keeps the full span tree, so child spans (DB queries,

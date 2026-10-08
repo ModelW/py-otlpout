@@ -59,3 +59,33 @@ def attributes(mapping: Mapping[str, Any] | None) -> list[dict[str, Any]]:
         for item in mapping.items()
         if (kv := key_value(str(item[0]), item[1])) is not None
     ]
+
+
+#: Sentry stores these span-data/tag values as strings although the OTel
+#: registry declares them as integers.
+_INTEGER_KEYS = frozenset(
+    {
+        "client.port",
+        "http.request.body.size",
+        "http.response.body.size",
+        "http.response.status_code",
+        "http.status_code",
+        "server.port",
+        "thread.id",
+    }
+)
+
+
+def conform_value(key: str, value: Any) -> Any:
+    """Coerce a Sentry value to the type the OTel registry declares for *key*.
+
+    Sentry surfaces some numeric attributes as strings (``thread.id``,
+    ``http.status_code``); copying them verbatim would produce a
+    type-non-conformant OTLP attribute, so they are parsed back to integers.
+    """
+    if key in _INTEGER_KEYS and isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    return value

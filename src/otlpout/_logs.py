@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import sentry_sdk
 from sentry_sdk.utils import logger
 
-from otlpout._attributes import attributes
+from otlpout._attributes import attributes, conform_value
 from otlpout._ids import optional_span_id, span_id, trace_id
 from otlpout._ip import client_address
 from otlpout._resource import build_resource
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from otlpout.integration import OtlpOut
 
 EVENT_SCOPE = "sentry.event"
-LOG_SCOPE = "sentry.log"
 
 # Sentry level -> (OTLP severity number, severity text). OTLP reserves ranges
 # per severity; the first number of each range is the canonical one.
@@ -102,14 +101,20 @@ def _event_body(event: dict[str, Any]) -> str:
     return str(event.get("transaction") or "event")
 
 
+def _event_logger(event: dict[str, Any]) -> str:
+    """Return the instrumentation scope name for a captured event.
+
+    The OTel Logs API records a logger name as the instrumentation scope's
+    name (not as an attribute), so it is preferred over the generic fallback.
+    """
+    logentry = event.get("logentry") or {}
+    return logentry.get("logger") or event.get("logger") or EVENT_SCOPE
+
+
 def _event_attributes(event: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     if event.get("event_id"):
         result["sentry.event_id"] = event["event_id"]
-    logentry = event.get("logentry") or {}
-    logger_name = logentry.get("logger") or event.get("logger")
-    if logger_name:
-        result["log.logger"] = logger_name
     values = (event.get("exception") or {}).get("values") or []
     if values:
         last = values[-1]
@@ -123,7 +128,8 @@ def _event_attributes(event: dict[str, Any]) -> dict[str, Any]:
                 _frame_summary(frame) for frame in frames
             )
     for key, value in (event.get("tags") or {}).items():
-        result.setdefault(str(key), value)
+        name = str(key)
+        result.setdefault(name, conform_value(name, value))
     return result
 
 
@@ -144,7 +150,7 @@ def event_to_otlp(event: dict[str, Any], adapter: OtlpOut) -> dict[str, Any]:
         body=_event_body(event),
         attrs=attrs,
     )
-    return _envelope(adapter, event, EVENT_SCOPE, record)
+    return _envelope(adapter, event, _event_logger(event), record)
 
 
 def log_record_to_otlp(record: logging.LogRecord, adapter: OtlpOut) -> dict[str, Any]:
@@ -159,7 +165,6 @@ def log_record_to_otlp(record: logging.LogRecord, adapter: OtlpOut) -> dict[str,
         "code.line.number": record.lineno,
         "code.function.name": record.funcName,
         "thread.id": record.thread,
-        "logger.name": record.name,
         "process.pid": record.process,
     }
     trace: str | None = None
@@ -183,4 +188,4 @@ def log_record_to_otlp(record: logging.LogRecord, adapter: OtlpOut) -> dict[str,
         body=record.getMessage(),
         attrs=attrs,
     )
-    return _envelope(adapter, None, LOG_SCOPE, log)
+    return _envelope(adapter, None, record.name, log)
